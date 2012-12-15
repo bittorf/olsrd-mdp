@@ -110,7 +110,7 @@ static struct stamp timestamps[HASHSIZE];
 
 char config_instancepath[FILENAME_MAX + 1];
 char config_sid[SID_STRLEN + 1];
-unsigned char *servald_key[32];
+unsigned char *servald_key;
 int servald_key_len;
 
 /* Event function to register with the sceduler */
@@ -1131,6 +1131,7 @@ read_key_from_servald(const char *sid)
     return -1;
   }
 
+  servald_key = (unsigned char *)calloc(found_public_key_len, sizeof(unsigned char));
   memcpy(servald_key, found_public_key, found_public_key_len);
   servald_key_len = found_public_key_len;
 
