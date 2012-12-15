@@ -132,7 +132,7 @@ static int read_key_from_servald(const char *);
 static void
 print_data(const char *label, const uint8_t *data, size_t len)
 {
-  int j = 0, i = 0;
+  unsigned int j = 0, i = 0;
   olsr_printf(1, "%s:\n", label);
 
   for (; i < len; i++) {
@@ -146,7 +146,7 @@ print_data(const char *label, const uint8_t *data, size_t len)
 }
 
 static void
-mdp_checksum(const uint8_t * data, const uint16_t data_len, uint8_t * hashbuf)
+mdp_checksum(uint8_t *data, const uint16_t data_len, uint8_t *hashbuf)
 {
   unsigned long long signature_bytes = SIGNATURE_BYTES;
   print_data("Data", data, data_len);
@@ -295,12 +295,6 @@ int
 add_signature(uint8_t * pck, int *size)
 {
   struct s_olsrmsg *msg;
-#ifdef DEBUG
-  unsigned int i;
-  int j;
-  const uint8_t *sigmsg;
-#endif /* DEBUG */
-
   olsr_printf(2, "[ENC]Adding signature for packet size %d\n", *size);
   fflush(stdout);
 
@@ -308,7 +302,7 @@ add_signature(uint8_t * pck, int *size)
   /* Update size */
   ((struct olsr *)pck)->olsr_packlen = htons(*size + sizeof(struct s_olsrmsg));
 
-  olsr_printf(1, "sizeof(struct s_olsrmsg): %d\n", sizeof(struct s_olsrmsg));
+  olsr_printf(1, "sizeof(struct s_olsrmsg): %lu\n", sizeof(struct s_olsrmsg));
 
   /* Fill packet header */
   msg->olsr_msgtype = MESSAGE_TYPE;
@@ -350,7 +344,7 @@ add_signature(uint8_t * pck, int *size)
 
   olsr_printf(3, "[ENC] Message signed\n");
 
-  if (validate_packet(NULL, pck, size))
+  if (validate_packet(NULL, (const char*)pck, size))
   {
     olsr_printf(1, "Packet internally validated\n");
   }
@@ -368,12 +362,6 @@ validate_packet(struct interface *olsr_if, const char *pck, int *size)
   const struct s_olsrmsg *sig;
   uint32_t rec_time;
 
-#ifdef DEBUG
-  unsigned int i;
-  int j;
-  const uint8_t *sigmsg;
-#endif /* DEBUG */
-
   /* Find size - signature message */
   packetsize = *size - sizeof(struct s_olsrmsg);
 
@@ -386,7 +374,7 @@ validate_packet(struct interface *olsr_if, const char *pck, int *size)
   olsr_printf(1, "Size: %d\n", *size);
 
   olsr_printf(1, "Input message:\n");
-  print_data("Input message", (uint8_t*)sig, sizeof(struct s_olsrmsg));
+  print_data("Input message", (const uint8_t*)sig, sizeof(struct s_olsrmsg));
 
   /* Sanity check first */
   if ((sig->olsr_msgtype != MESSAGE_TYPE) || (sig->olsr_vtime != 0)
@@ -429,7 +417,7 @@ one_checksum_SHA:
     free(checksum_cache);
   }
 
-  print_data("Received hash", (uint8_t*)sig->sig.signature, SIGNATURE_SIZE);
+  print_data("Received hash", (const uint8_t*)sig->sig.signature, SIGNATURE_SIZE);
   print_data("Calculated hash", sha1_hash, SIGNATURE_SIZE);
   
   if (memcmp(sha1_hash, sig->sig.signature, SIGNATURE_SIZE) != 0) {
@@ -640,8 +628,8 @@ parse_cres(struct interface *olsr_if, char *in_msg)
 
   {
     uint8_t *checksum_cache = NULL; 
-    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     uint32_t netorder_challenge;
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
 
     /* First the challenge received */
     /* But we have to calculate our hash with the challenge in
@@ -745,8 +733,8 @@ parse_rres(char *in_msg)
 
   {
     uint8_t *checksum_cache = NULL; 
-    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     uint32_t netorder_challenge;
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
 
     /* First the challenge received */
     /* But we have to calculate our hash with the challenge in network order!  6-Jun-2011 AE5AE */
@@ -1100,7 +1088,7 @@ read_key_from_servald(const char *sid)
 {
   const char *pins = {"",};
   unsigned char stowedSid[SID_SIZE];
-  char *found_public_key = NULL;
+  unsigned char *found_public_key = NULL;
   int found_public_key_len = 0;
   int cn = 0, in = 0, kp = 0;
  
