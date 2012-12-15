@@ -1,8 +1,8 @@
 
 /*
- * Secure OLSR plugin
- * http://www.olsr.org
+ * Serval MDP Secure OLSR plugin
  *
+ * Copyright (c) 2012, Open Technology Institute 
  * Copyright (c) 2004, Andreas Tonnesen(andreto@olsr.org)
  * All rights reserved.
  *
@@ -68,7 +68,6 @@
 #define MDP_INCLUDING_KEY   3
 
 #define SIGNATURE_SIZE SIGNATURE_BYTES
-#define KEYLENGTH      32
 
 #define UPPER_DIFF 3
 #define LOWER_DIFF -3

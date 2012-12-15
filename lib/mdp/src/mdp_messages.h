@@ -1,8 +1,8 @@
 
 /*
- * Secure OLSR plugin
- * http://www.olsr.org
+ * Serval MDP Secure OLSR plugin
  *
+ * Copyright (c) 2012, Open Technology Institute
  * Copyright (c) 2004, Andreas Tonnesen(andreto@olsr.org)
  * All rights reserved.
  *
@@ -77,8 +77,8 @@ extern char config_instancepath[FILENAME_MAX + 1];
  *                            PACKET SECTION                                *
  ****************************************************************************/
 
-//#define PACK __attribute__ ((__packed__))
-#define PACK  
+#define PACK __attribute__ ((__packed__))
+//#define PACK  
 #define TIME_TYPE time_t
 struct PACK sig_msg {
   uint8_t type;

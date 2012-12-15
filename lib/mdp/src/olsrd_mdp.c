@@ -1,8 +1,8 @@
 
 /*
- * Secure OLSR plugin
- * http://www.olsr.org
+ * Serval MDP Secure OLSR plugin
  *
+ * Copyright (c) 2012, Open Technology Institute
  * Copyright (c) 2004, Andreas Tonnesen(andreto@olsr.org)
  * All rights reserved.
  *
@@ -110,7 +110,7 @@ static struct stamp timestamps[HASHSIZE];
 
 char config_instancepath[FILENAME_MAX + 1];
 char config_sid[SID_STRLEN + 1];
-unsigned char *servald_key;
+unsigned char *servald_key[32];
 int servald_key_len;
 
 /* Event function to register with the sceduler */
@@ -129,16 +129,31 @@ static int check_timestamp(struct interface *olsr_if, const union olsr_ip_addr *
 static struct stamp *lookup_timestamp_entry(const union olsr_ip_addr *);
 static int read_key_from_servald(const char *);
 
-#include "serval_helper.h"
+static void
+print_data(const char *label, const uint8_t *data, size_t len)
+{
+  int j = 0, i = 0;
+  olsr_printf(1, "%s:\n", label);
+
+  for (; i < len; i++) {
+    olsr_printf(1, "  %3i", data[i]);
+    j++;
+    if (j == 4) {
+      olsr_printf(1, "\n");
+      j = 0;
+    }
+  }
+}
 
 static void
 mdp_checksum(const uint8_t * data, const uint16_t data_len, uint8_t * hashbuf)
 {
   unsigned long long signature_bytes = SIGNATURE_BYTES;
-  printf("data: %s\n", alloca_tohex(data, data_len));
+  print_data("Data", data, data_len);
+
   if (!crypto_create_signature(servald_key, data, data_len, hashbuf, &signature_bytes)) 
   {
-    printf("signature: %s\n", alloca_tohex(hashbuf, signature_bytes));
+    print_data("signature", hashbuf, signature_bytes);
   }
   else
   {
@@ -293,6 +308,8 @@ add_signature(uint8_t * pck, int *size)
   /* Update size */
   ((struct olsr *)pck)->olsr_packlen = htons(*size + sizeof(struct s_olsrmsg));
 
+  olsr_printf(1, "sizeof(struct s_olsrmsg): %d\n", sizeof(struct s_olsrmsg));
+
   /* Fill packet header */
   msg->olsr_msgtype = MESSAGE_TYPE;
   msg->olsr_vtime = 0;
@@ -316,32 +333,20 @@ add_signature(uint8_t * pck, int *size)
   *size += sizeof(struct s_olsrmsg);
 
   {
-    uint8_t checksum_cache[1512 + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     /* Create packet + key cache */
     /* First the OLSR packet + signature message - digest */
     memcpy(checksum_cache, pck, *size - SIGNATURE_SIZE);
     /* Then the key */
-    memcpy(&checksum_cache[*size - SIGNATURE_SIZE], servald_key, KEYLENGTH);
+    memcpy(&checksum_cache[*size - SIGNATURE_SIZE], servald_key, servald_key_len);
 
     /* Create the hash */
-    CHECKSUM(checksum_cache, (*size - SIGNATURE_SIZE) + KEYLENGTH, &pck[*size - SIGNATURE_SIZE]);
+    CHECKSUM(checksum_cache, (*size - SIGNATURE_SIZE) + servald_key_len, &pck[*size - SIGNATURE_SIZE]);
+    free(checksum_cache);
   }
 
-#ifdef DEBUG
-  olsr_printf(1, "Signature message:\n");
-
-  j = 0;
-  sigmsg = (uint8_t *) msg;
-
-  for (i = 0; i < sizeof(struct s_olsrmsg); i++) {
-    olsr_printf(1, "  %3i", sigmsg[i]);
-    j++;
-    if (j == 4) {
-      olsr_printf(1, "\n");
-      j = 0;
-    }
-  }
-#endif /* DEBUG */
+  print_data("Signature message", (uint8_t*)msg, sizeof(struct s_olsrmsg));
 
   olsr_printf(3, "[ENC] Message signed\n");
 
@@ -349,6 +354,8 @@ add_signature(uint8_t * pck, int *size)
   {
     olsr_printf(1, "Packet internally validated\n");
   }
+
+  olsr_printf(1, "size: %d\n", *size);
 
   return 1;
 }
@@ -375,23 +382,11 @@ validate_packet(struct interface *olsr_if, const char *pck, int *size)
 
   sig = (const struct s_olsrmsg *)CONST_ARM_NOWARN_ALIGN(&pck[packetsize]);
 
-  //olsr_printf(1, "Size: %d\n", packetsize);
+  olsr_printf(1, "Packet size: %d\n", packetsize);
+  olsr_printf(1, "Size: %d\n", *size);
 
-#ifdef DEBUG
   olsr_printf(1, "Input message:\n");
-
-  j = 0;
-  sigmsg = (const uint8_t *)sig;
-
-  for (i = 0; i < sizeof(struct s_olsrmsg); i++) {
-    olsr_printf(1, "  %3i", sigmsg[i]);
-    j++;
-    if (j == 4) {
-      olsr_printf(1, "\n");
-      j = 0;
-    }
-  }
-#endif /* DEBUG */
+  print_data("Input message", (uint8_t*)sig, sizeof(struct s_olsrmsg));
 
   /* Sanity check first */
   if ((sig->olsr_msgtype != MESSAGE_TYPE) || (sig->olsr_vtime != 0)
@@ -421,37 +416,22 @@ validate_packet(struct interface *olsr_if, const char *pck, int *size)
 one_checksum_SHA:
 
   {
-    uint8_t checksum_cache[1512 + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     /* Create packet + key cache */
     /* First the OLSR packet + signature message - digest */
     memcpy(checksum_cache, pck, *size - SIGNATURE_SIZE);
     /* Then the key */
-    memcpy(&checksum_cache[*size - SIGNATURE_SIZE], servald_key, KEYLENGTH);
+    memcpy(&checksum_cache[*size - SIGNATURE_SIZE], servald_key, servald_key_len);
 
     /* generate SHA-1 */
-    CHECKSUM(checksum_cache, *size - SIGNATURE_SIZE + KEYLENGTH, sha1_hash);
+    CHECKSUM(checksum_cache, (*size - SIGNATURE_SIZE) + servald_key_len, sha1_hash);
+    free(checksum_cache);
   }
 
-#ifdef DEBUG
-  olsr_printf(1, "Received hash:\n");
-
-  sigmsg = (const uint8_t *)sig->sig.signature;
-
-  for (i = 0; i < SIGNATURE_SIZE; i++) {
-    olsr_printf(1, " %3i", sigmsg[i]);
-  }
-  olsr_printf(1, "\n");
-
-  olsr_printf(1, "Calculated hash:\n");
-
-  sigmsg = sha1_hash;
-
-  for (i = 0; i < SIGNATURE_SIZE; i++) {
-    olsr_printf(1, " %3i", sigmsg[i]);
-  }
-  olsr_printf(1, "\n");
-#endif /* DEBUG */
-
+  print_data("Received hash", (uint8_t*)sig->sig.signature, SIGNATURE_SIZE);
+  print_data("Calculated hash", sha1_hash, SIGNATURE_SIZE);
+  
   if (memcmp(sha1_hash, sig->sig.signature, SIGNATURE_SIZE) != 0) {
     olsr_printf(1, "[ENC]Signature mismatch\n");
     return 0;
@@ -560,15 +540,17 @@ send_challenge(struct interface *olsr_if, const union olsr_ip_addr *new_host)
   olsr_printf(3, "[ENC]Size: %lu\n", (unsigned long)sizeof(struct challengemsg));
 
   {
-    uint8_t checksum_cache[(sizeof(cmsg) - sizeof(cmsg.signature)) + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc((sizeof(cmsg) - sizeof(cmsg.signature)) + servald_key_len, sizeof(uint8_t));
     /* Create packet + key cache */
     /* First the OLSR packet + signature message - digest */
     memcpy(checksum_cache, &cmsg, sizeof(cmsg) - sizeof(cmsg.signature));
     /* Then the key */
-    memcpy(&checksum_cache[sizeof(cmsg) - sizeof(cmsg.signature)], servald_key, KEYLENGTH);
+    memcpy(&checksum_cache[sizeof(cmsg) - sizeof(cmsg.signature)], servald_key, servald_key_len);
 
     /* Create the hash */
-    CHECKSUM(checksum_cache, (sizeof(cmsg) - sizeof(cmsg.signature)) + KEYLENGTH, cmsg.signature);
+    CHECKSUM(checksum_cache, (sizeof(cmsg) - sizeof(cmsg.signature)) + servald_key_len, cmsg.signature);
+    free(checksum_cache);
   }
   olsr_printf(3, "[ENC]Sending timestamp request to %s challenge 0x%x\n",
 	      olsr_ip_to_string(&buf, new_host), challenge);
@@ -626,15 +608,17 @@ parse_cres(struct interface *olsr_if, char *in_msg)
   /* Check signature */
 
   {
-    uint8_t checksum_cache[1512 + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     /* Create packet + key cache */
     /* First the OLSR packet + signature message - digest */
     memcpy(checksum_cache, msg, sizeof(struct c_respmsg) - SIGNATURE_SIZE);
     /* Then the key */
-    memcpy(&checksum_cache[sizeof(struct c_respmsg) - SIGNATURE_SIZE], servald_key, KEYLENGTH);
+    memcpy(&checksum_cache[sizeof(struct c_respmsg) - SIGNATURE_SIZE], servald_key, servald_key_len);
 
     /* Create the hash */
-    CHECKSUM(checksum_cache, (sizeof(struct c_respmsg) - SIGNATURE_SIZE) + KEYLENGTH, sha1_hash);
+    CHECKSUM(checksum_cache, (sizeof(struct c_respmsg) - SIGNATURE_SIZE) + servald_key_len, sha1_hash);
+    free(checksum_cache);
   }
 
   if (memcmp(sha1_hash, &msg->signature, SIGNATURE_SIZE) != 0) {
@@ -655,7 +639,8 @@ parse_cres(struct interface *olsr_if, char *in_msg)
   olsr_printf(3, "[ENC]Entry-challenge 0x%x\n", entry->challenge);
 
   {
-    uint8_t checksum_cache[1512 + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     uint32_t netorder_challenge;
 
     /* First the challenge received */
@@ -670,6 +655,7 @@ parse_cres(struct interface *olsr_if, char *in_msg)
 
     /* Create the hash */
     CHECKSUM(checksum_cache, sizeof(uint32_t) + olsr_cnf->ipsize, sha1_hash);
+    free(checksum_cache);
   }
 
   if (memcmp(msg->res_sig, sha1_hash, SIGNATURE_SIZE) != 0) {
@@ -727,15 +713,17 @@ parse_rres(char *in_msg)
   /* Check signature */
 
   {
-    uint8_t checksum_cache[1512 + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     /* Create packet + key cache */
     /* First the OLSR packet + signature message - digest */
     memcpy(checksum_cache, msg, sizeof(struct r_respmsg) - SIGNATURE_SIZE);
     /* Then the key */
-    memcpy(&checksum_cache[sizeof(struct r_respmsg) - SIGNATURE_SIZE], servald_key, KEYLENGTH);
+    memcpy(&checksum_cache[sizeof(struct r_respmsg) - SIGNATURE_SIZE], servald_key, servald_key_len);
 
     /* Create the hash */
-    CHECKSUM(checksum_cache, (sizeof(struct r_respmsg) - SIGNATURE_SIZE) + KEYLENGTH, sha1_hash);
+    CHECKSUM(checksum_cache, (sizeof(struct r_respmsg) - SIGNATURE_SIZE) + servald_key_len, sha1_hash);
+    free(checksum_cache);
   }
 
   if (memcmp(sha1_hash, &msg->signature, SIGNATURE_SIZE) != 0) {
@@ -756,7 +744,8 @@ parse_rres(char *in_msg)
   olsr_printf(3, "[ENC]Entry-challenge 0x%x\n", entry->challenge);
 
   {
-    uint8_t checksum_cache[1512 + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     uint32_t netorder_challenge;
 
     /* First the challenge received */
@@ -770,6 +759,7 @@ parse_rres(char *in_msg)
 
     /* Create the hash */
     CHECKSUM(checksum_cache, sizeof(uint32_t) + olsr_cnf->ipsize, sha1_hash);
+    free(checksum_cache);
   }
 
   if (memcmp(msg->res_sig, sha1_hash, SIGNATURE_SIZE) != 0) {
@@ -845,15 +835,17 @@ parse_challenge(struct interface *olsr_if, char *in_msg)
   /* Check signature */
 
   {
-    uint8_t checksum_cache[1512 + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc(1512 + servald_key_len, sizeof(uint8_t));
     /* Create packet + key cache */
     /* First the OLSR packet + signature message - digest */
     memcpy(checksum_cache, msg, sizeof(struct challengemsg) - SIGNATURE_SIZE);
     /* Then the key */
-    memcpy(&checksum_cache[sizeof(struct challengemsg) - SIGNATURE_SIZE], servald_key, KEYLENGTH);
+    memcpy(&checksum_cache[sizeof(struct challengemsg) - SIGNATURE_SIZE], servald_key, servald_key_len);
 
     /* Create the hash */
-    CHECKSUM(checksum_cache, (sizeof(struct challengemsg) - SIGNATURE_SIZE) + KEYLENGTH, sha1_hash);
+    CHECKSUM(checksum_cache, (sizeof(struct challengemsg) - SIGNATURE_SIZE) + servald_key_len, sha1_hash);
+    free(checksum_cache);
   }
   if (memcmp(sha1_hash, &msg->signature, SIGNATURE_SIZE) != 0) {
     olsr_printf(1, "[ENC]Signature mismatch in challenge!\n");
@@ -941,15 +933,17 @@ send_cres(struct interface *olsr_if, union olsr_ip_addr *to, union olsr_ip_addr 
   /* Now create the digest of the message and the key */
 
   {
-    uint8_t checksum_cache[(sizeof(crmsg) - sizeof(crmsg.signature)) + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc((sizeof(crmsg) - sizeof(crmsg.signature)) + servald_key_len, sizeof(uint8_t));
     /* Create packet + key cache */
     /* First the OLSR packet + signature message - digest */
     memcpy(checksum_cache, &crmsg, sizeof(crmsg) - sizeof(crmsg.signature));
     /* Then the key */
-    memcpy(&checksum_cache[sizeof(crmsg) - sizeof(crmsg.signature)], servald_key, KEYLENGTH);
+    memcpy(&checksum_cache[sizeof(crmsg) - sizeof(crmsg.signature)], servald_key, servald_key_len);
 
     /* Create the hash */
-    CHECKSUM(checksum_cache, (sizeof(crmsg) - sizeof(crmsg.signature)) + KEYLENGTH, crmsg.signature);
+    CHECKSUM(checksum_cache, (sizeof(crmsg) - sizeof(crmsg.signature)) + servald_key_len, crmsg.signature);
+    free(checksum_cache);
   }
 
   olsr_printf(3, "[ENC]Sending challenge response to %s challenge 0x%x\n", olsr_ip_to_string(&buf, to), challenge);
@@ -1015,15 +1009,17 @@ send_rres(struct interface *olsr_if, union olsr_ip_addr *to, union olsr_ip_addr 
   /* Now create the digest of the message and the key */
 
   {
-    uint8_t checksum_cache[(sizeof(rrmsg) - sizeof(rrmsg.signature)) + KEYLENGTH];
+    uint8_t *checksum_cache = NULL; 
+    checksum_cache = (uint8_t*)calloc((sizeof(rrmsg) - sizeof(rrmsg.signature)) + servald_key_len, sizeof(uint8_t));
     /* Create packet + key cache */
     /* First the OLSR packet + signature message - digest */
     memcpy(checksum_cache, &rrmsg, sizeof(rrmsg) - sizeof(rrmsg.signature));
     /* Then the key */
-    memcpy(&checksum_cache[sizeof(rrmsg) - sizeof(rrmsg.signature)], servald_key, KEYLENGTH);
+    memcpy(&checksum_cache[sizeof(rrmsg) - sizeof(rrmsg.signature)], servald_key, servald_key_len);
 
     /* Create the hash */
-    CHECKSUM(checksum_cache, (sizeof(rrmsg) - sizeof(rrmsg.signature)) + KEYLENGTH, rrmsg.signature);
+    CHECKSUM(checksum_cache, (sizeof(rrmsg) - sizeof(rrmsg.signature)) + servald_key_len, rrmsg.signature);
+    free(checksum_cache);
   }
 
   olsr_printf(3, "[ENC]Sending response response to %s\n", olsr_ip_to_string(&buf, to));
@@ -1104,6 +1100,8 @@ read_key_from_servald(const char *sid)
 {
   const char *pins = {"",};
   unsigned char stowedSid[SID_SIZE];
+  char *found_public_key = NULL;
+  int found_public_key_len = 0;
   int cn = 0, in = 0, kp = 0;
  
   keyring = keyring_open_with_pins(pins);
@@ -1119,22 +1117,25 @@ read_key_from_servald(const char *sid)
   {
     if (keyring->contexts[cn]->identities[in]->keypairs[kp]->type==KEYTYPE_CRYPTOSIGN)
     {
-      servald_key = 
+      found_public_key = 
         keyring->contexts[cn]->identities[in]->keypairs[kp]->public_key;
-      servald_key_len = 
+      found_public_key_len = 
         keyring->contexts[cn]->identities[in]->keypairs[kp]->public_key_len;
     }
   }
 
-  if (!servald_key)
+  if (!found_public_key)
   {
     olsr_printf(1, "key for sid not found!\n");
     keyring_free(keyring);
     return -1;
   }
 
+  memcpy(servald_key, found_public_key, found_public_key_len);
+  servald_key_len = found_public_key_len;
+
   olsr_printf(1, "servald_key_len: %d\n", servald_key_len);
-  olsr_printf(1, "servald_key: %s\n", alloca_tohex(servald_key, servald_key_len));
+  print_data("servald_key", servald_key, servald_key_len);
 
   keyring_free(keyring);
   return 0;

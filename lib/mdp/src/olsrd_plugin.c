@@ -1,8 +1,8 @@
 
 /*
- * Secure OLSR plugin
- * http://www.olsr.org
+ * Serval MDP Secure OLSR plugin
  *
+ * Copyright (c) 2012, Open Technology Institute
  * Copyright (c) 2004, Andreas Tonnesen(andreto@olsr.org)
  * All rights reserved.
  *
@@ -80,7 +80,8 @@ my_init(void)
   /* Print plugin info to stdout */
   /* We cannot use olsr_printf yet! */
   printf("%s\n", MOD_DESC);
-  printf("[ENC]Accepted parameter pairs: (\"Keyfile\" <FILENAME>)\n");
+  printf("[ENC]Accepted parameter pairs: (\"sid\",<SID>)" 
+         " and (\"servalpath\",<Serval Instance Path>\n");
 }
 
 /**
