@@ -80,7 +80,7 @@ my_init(void)
   /* Print plugin info to stdout */
   /* We cannot use olsr_printf yet! */
   printf("%s\n", MOD_DESC);
-  printf("[ENC]Accepted parameter pairs: (\"sid\",<SID>)" 
+  printf("[MDP] Accepted parameter pairs: (\"sid\",<SID>)" 
          " and (\"servalpath\",<Serval Instance Path>\n");
 }
 

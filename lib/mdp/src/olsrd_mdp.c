@@ -133,13 +133,13 @@ static void
 print_data(const char *label, const uint8_t *data, size_t len)
 {
   unsigned int j = 0, i = 0;
-  olsr_printf(1, "%s:\n", label);
+  olsr_printf(3, "%s:\n", label);
 
   for (; i < len; i++) {
-    olsr_printf(1, "  %3i", data[i]);
+    olsr_printf(3, "  %3i", data[i]);
     j++;
     if (j == 4) {
-      olsr_printf(1, "\n");
+      olsr_printf(3, "\n");
       j = 0;
     }
   }
@@ -149,6 +149,7 @@ static void
 mdp_checksum(uint8_t *data, const uint16_t data_len, uint8_t *hashbuf)
 {
   unsigned long long signature_bytes = SIGNATURE_BYTES;
+  print_data("Key", servald_key, servald_key_len);
   print_data("Data", data, data_len);
 
   if (!crypto_create_signature(servald_key, data, data_len, hashbuf, &signature_bytes)) 
@@ -157,7 +158,7 @@ mdp_checksum(uint8_t *data, const uint16_t data_len, uint8_t *hashbuf)
   }
   else
   {
-    olsr_printf(1, "Error creating checksum!\n");
+    olsr_printf(1, "[MDP] Error creating checksum!\n");
   }
   return;
 }
@@ -179,21 +180,21 @@ mdp_plugin_init(void)
     timestamps[i].next = &timestamps[i];
     timestamps[i].prev = &timestamps[i];
   }
-  olsr_printf(1, "Timestamp database initialized\n");
+  olsr_printf(3, "Timestamp database initialized\n");
 
   if (!strlen(config_sid)) {
-    olsr_printf(1, "Must set a SID (sid) for this plugin to work.\n\n");
+    olsr_printf(1, "[MDP] Must set a SID (sid) for this plugin to work.\n\n");
     exit(1);
   }
 
   if (!strlen(config_instancepath)) {
-    olsr_printf(1, "Must set a Serval instance path (servalpath) for this plugin to work.\n\n");
+    olsr_printf(1, "[MDP] Must set a Serval instance path (servalpath) for this plugin to work.\n\n");
     exit(1);
   }
 
   serval_setinstancepath(config_instancepath);
   if (read_key_from_servald(config_sid)) {
-    olsr_printf(1, "[ENC]Could not read key from servald sid!\nExiting!\n\n");
+    olsr_printf(1, "[MDP] Could not read key from servald sid!\nExiting!\n\n");
     exit(1);
   }
 
@@ -239,11 +240,11 @@ secure_preprocessor(char *packet, struct interface *olsr_if, union olsr_ip_addr 
    */
 
   if (!validate_packet(olsr_if, packet, length)) {
-    olsr_printf(1, "[ENC]Rejecting packet from %s\n", olsr_ip_to_string(&buf, from_addr));
+    olsr_printf(1, "[MDP] Rejecting packet from %s\n", olsr_ip_to_string(&buf, from_addr));
     return NULL;
   }
 
-  olsr_printf(1, "[ENC]Packet from %s OK size %d\n", olsr_ip_to_string(&buf, from_addr), *length);
+  olsr_printf(3, "[MDP] Packet from %s OK size %d\n", olsr_ip_to_string(&buf, from_addr), *length);
 
   /* Fix OLSR packet header */
   olsr->olsr_packlen = htons(*length);
@@ -261,7 +262,7 @@ static int
 check_auth(struct interface *olsr_if, char *pck, int *size __attribute__ ((unused)))
 {
 
-  olsr_printf(3, "[ENC]Checking packet for challenge response message...\n");
+  olsr_printf(3, "[MDP] Checking packet for challenge response message...\n");
 
   switch (pck[4]) {
   case (TYPE_CHALLENGE):
@@ -295,14 +296,12 @@ int
 add_signature(uint8_t * pck, int *size)
 {
   struct s_olsrmsg *msg;
-  olsr_printf(2, "[ENC]Adding signature for packet size %d\n", *size);
+  olsr_printf(2, "[MDP] Adding signature for packet size %d\n", *size);
   fflush(stdout);
 
   msg = (struct s_olsrmsg *)ARM_NOWARN_ALIGN(&pck[*size]);
   /* Update size */
   ((struct olsr *)pck)->olsr_packlen = htons(*size + sizeof(struct s_olsrmsg));
-
-  olsr_printf(1, "sizeof(struct s_olsrmsg): %lu\n", sizeof(struct s_olsrmsg));
 
   /* Fill packet header */
   msg->olsr_msgtype = MESSAGE_TYPE;
@@ -321,7 +320,7 @@ add_signature(uint8_t * pck, int *size)
   /* Add timestamp */
   msg->sig.timestamp = htonl(now.tv_sec);
 #ifndef _WIN32
-  olsr_printf(3, "[ENC]timestamp: %lld\n", (long long)now.tv_sec);
+  olsr_printf(3, "[MDP] timestamp: %lld\n", (long long)now.tv_sec);
 #endif /* _WIN32 */
   /* Set the new size */
   *size += sizeof(struct s_olsrmsg);
@@ -342,14 +341,12 @@ add_signature(uint8_t * pck, int *size)
 
   print_data("Signature message", (uint8_t*)msg, sizeof(struct s_olsrmsg));
 
-  olsr_printf(3, "[ENC] Message signed\n");
+  olsr_printf(3, "[MDP] Message signed\n");
 
   if (validate_packet(NULL, (const char*)pck, size))
   {
-    olsr_printf(1, "Packet internally validated\n");
+    olsr_printf(3, "Packet internally validated\n");
   }
-
-  olsr_printf(1, "size: %d\n", *size);
 
   return 1;
 }
@@ -370,16 +367,12 @@ validate_packet(struct interface *olsr_if, const char *pck, int *size)
 
   sig = (const struct s_olsrmsg *)CONST_ARM_NOWARN_ALIGN(&pck[packetsize]);
 
-  olsr_printf(1, "Packet size: %d\n", packetsize);
-  olsr_printf(1, "Size: %d\n", *size);
-
-  olsr_printf(1, "Input message:\n");
   print_data("Input message", (const uint8_t*)sig, sizeof(struct s_olsrmsg));
 
   /* Sanity check first */
   if ((sig->olsr_msgtype != MESSAGE_TYPE) || (sig->olsr_vtime != 0)
       || (sig->olsr_msgsize != ntohs(sizeof(struct s_olsrmsg))) || (sig->ttl != 1) || (sig->hopcnt != 0)) {
-    olsr_printf(1, "[ENC]Packet not sane!\n");
+    olsr_printf(1, "[MDP] Packet not sane!\n");
     return 0;
   }
 
@@ -396,7 +389,7 @@ validate_packet(struct interface *olsr_if, const char *pck, int *size)
     break;
 
   default:
-    olsr_printf(1, "[ENC]Unsupported sceme: %d enc: %d!\n", sig->sig.type, sig->sig.algorithm);
+    olsr_printf(3, "[MDP] Unsupported scheme: %d enc: %d!\n", sig->sig.type, sig->sig.algorithm);
     return 0;
   }
   //olsr_printf(1, "Packet sane...\n");
@@ -421,7 +414,7 @@ one_checksum_SHA:
   print_data("Calculated hash", sha1_hash, SIGNATURE_SIZE);
   
   if (memcmp(sha1_hash, sig->sig.signature, SIGNATURE_SIZE) != 0) {
-    olsr_printf(1, "[ENC]Signature mismatch\n");
+    olsr_printf(1, "[MDP] Signature mismatch\n");
     return 0;
   }
 
@@ -433,12 +426,12 @@ one_checksum_SHA:
 
   if (!check_timestamp(olsr_if, (const union olsr_ip_addr *)&sig->originator, rec_time)) {
     struct ipaddr_str buf;
-    olsr_printf(1, "[ENC]Timestamp mismatch in packet from %s!\n",
+    olsr_printf(1, "[MDP] Timestamp mismatch in packet from %s!\n",
                 olsr_ip_to_string(&buf, (const union olsr_ip_addr *)&sig->originator));
     return 0;
   }
 #ifndef _WIN32
-  olsr_printf(1, "[ENC]Received timestamp %lld diff: %lld\n", (long long)rec_time, (long long)now.tv_sec - (long long)rec_time);
+  olsr_printf(3, "[MDP] Received timestamp %lld diff: %lld\n", (long long)rec_time, (long long)now.tv_sec - (long long)rec_time);
 #endif /* _WIN32 */
   /* Remove signature message */
   *size = packetsize;
@@ -462,23 +455,23 @@ check_timestamp(struct interface *olsr_if, const union olsr_ip_addr *originator,
   }
 
   if (!entry->validated) {
-    olsr_printf(1, "[ENC]Message from non-validated host!\n");
+    olsr_printf(1, "[MDP] Message from non-validated host!\n");
     return 0;
   }
 
   diff = entry->diff - (now.tv_sec - tstamp);
 
-  olsr_printf(3, "[ENC]Timestamp slack: %d\n", diff);
+  olsr_printf(3, "[MDP] Timestamp slack: %d\n", diff);
 
   if ((diff > UPPER_DIFF) || (diff < LOWER_DIFF)) {
-    olsr_printf(1, "[ENC]Timestamp scew detected!!\n");
+    olsr_printf(1, "[MDP] Timestamp scew detected!!\n");
     return 0;
   }
 
   /* ok - update diff */
   entry->diff = ((now.tv_sec - tstamp) + entry->diff) ? ((now.tv_sec - tstamp) + entry->diff) / 2 : 0;
 
-  olsr_printf(3, "[ENC]Diff set to : %d\n", entry->diff);
+  olsr_printf(3, "[MDP] Diff set to : %d\n", entry->diff);
 
   /* update validtime */
 
@@ -503,7 +496,7 @@ send_challenge(struct interface *olsr_if, const union olsr_ip_addr *new_host)
   uint32_t challenge, hash;
   struct ipaddr_str buf;
 
-  olsr_printf(1, "[ENC]Building CHALLENGE message\n");
+  olsr_printf(3, "[MDP] Building CHALLENGE message\n");
 
   /* Set the size including OLSR packet size */
 
@@ -525,7 +518,7 @@ send_challenge(struct interface *olsr_if, const union olsr_ip_addr *new_host)
   memcpy(&cmsg.destination, new_host, olsr_cnf->ipsize);
   cmsg.challenge = htonl(challenge);
 
-  olsr_printf(3, "[ENC]Size: %lu\n", (unsigned long)sizeof(struct challengemsg));
+  olsr_printf(3, "[MDP] Size: %lu\n", (unsigned long)sizeof(struct challengemsg));
 
   {
     uint8_t *checksum_cache = NULL; 
@@ -540,7 +533,7 @@ send_challenge(struct interface *olsr_if, const union olsr_ip_addr *new_host)
     CHECKSUM(checksum_cache, (sizeof(cmsg) - sizeof(cmsg.signature)) + servald_key_len, cmsg.signature);
     free(checksum_cache);
   }
-  olsr_printf(3, "[ENC]Sending timestamp request to %s challenge 0x%x\n",
+  olsr_printf(3, "[MDP] Sending timestamp request to %s challenge 0x%x\n",
 	      olsr_ip_to_string(&buf, new_host), challenge);
 
   /* Add to buffer */
@@ -583,15 +576,15 @@ parse_cres(struct interface *olsr_if, char *in_msg)
 
   msg = (struct c_respmsg *)ARM_NOWARN_ALIGN(in_msg);
 
-  olsr_printf(1, "[ENC]Challenge-response message received\n");
-  olsr_printf(3, "[ENC]To: %s\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->destination));
+  olsr_printf(1, "[MDP] Challenge-response message received\n");
+  olsr_printf(3, "[MDP] To: %s\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->destination));
 
   if (if_ifwithaddr((union olsr_ip_addr *)&msg->destination) == NULL) {
-    olsr_printf(3, "[ENC]Not for us...\n");
+    olsr_printf(3, "[MDP] Not for us...\n");
     return 0;
   }
 
-  olsr_printf(3, "[ENC]Challenge: 0x%lx\n", (unsigned long)ntohl(msg->challenge));      /* ntohl() returns a unsignedlong onwin32 */
+  olsr_printf(3, "[MDP] Challenge: 0x%lx\n", (unsigned long)ntohl(msg->challenge));      /* ntohl() returns a unsignedlong onwin32 */
 
   /* Check signature */
 
@@ -610,21 +603,21 @@ parse_cres(struct interface *olsr_if, char *in_msg)
   }
 
   if (memcmp(sha1_hash, &msg->signature, SIGNATURE_SIZE) != 0) {
-    olsr_printf(1, "[ENC]Signature mismatch in challenge-response!\n");
+    olsr_printf(1, "[MDP] Signature mismatch in challenge-response!\n");
     return 0;
   }
 
-  olsr_printf(3, "[ENC]Signature verified\n");
+  olsr_printf(3, "[MDP] Signature verified\n");
 
   /* Now to check the digest from the emitted challenge */
   if ((entry = lookup_timestamp_entry((const union olsr_ip_addr *)&msg->originator)) == NULL) {
-    olsr_printf(1, "[ENC]Received challenge-response from non-registered node %s!\n",
+    olsr_printf(1, "[MDP] Received challenge-response from non-registered node %s!\n",
                 olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->originator));
     return 0;
   }
 
   /* Generate the digest */
-  olsr_printf(3, "[ENC]Entry-challenge 0x%x\n", entry->challenge);
+  olsr_printf(3, "[MDP] Entry-challenge 0x%x\n", entry->challenge);
 
   {
     uint8_t *checksum_cache = NULL; 
@@ -647,13 +640,13 @@ parse_cres(struct interface *olsr_if, char *in_msg)
   }
 
   if (memcmp(msg->res_sig, sha1_hash, SIGNATURE_SIZE) != 0) {
-    olsr_printf(1, "[ENC]Error in challenge signature from %s!\n",
+    olsr_printf(1, "[MDP] Error in challenge signature from %s!\n",
 		olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->originator));
 
     return 0;
   }
 
-  olsr_printf(3, "[ENC]Challenge-response signature ok\n");
+  olsr_printf(3, "[MDP] Challenge-response signature ok\n");
 
   /* Update entry! */
 
@@ -666,7 +659,7 @@ parse_cres(struct interface *olsr_if, char *in_msg)
   /* update validtime - validated entry */
   entry->valtime = GET_TIMESTAMP(TIMESTAMP_HOLD_TIME * 1000);
 
-  olsr_printf(1, "[ENC]%s registered with diff %d!\n",
+  olsr_printf(1, "[MDP] %s registered with diff %d!\n",
 	      olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->originator),
               entry->diff);
 
@@ -690,11 +683,11 @@ parse_rres(char *in_msg)
 
   msg = (struct r_respmsg *)ARM_NOWARN_ALIGN(in_msg);
 
-  olsr_printf(1, "[ENC]Response-response message received\n");
-  olsr_printf(3, "[ENC]To: %s\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->destination));
+  olsr_printf(1, "[MDP] Response-response message received\n");
+  olsr_printf(3, "[MDP] To: %s\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->destination));
 
   if (if_ifwithaddr((union olsr_ip_addr *)&msg->destination) == NULL) {
-    olsr_printf(1, "[ENC]Not for us...\n");
+    olsr_printf(1, "[MDP] Not for us...\n");
     return 0;
   }
 
@@ -715,21 +708,21 @@ parse_rres(char *in_msg)
   }
 
   if (memcmp(sha1_hash, &msg->signature, SIGNATURE_SIZE) != 0) {
-    olsr_printf(1, "[ENC]Signature mismatch in response-response!\n");
+    olsr_printf(1, "[MDP] Signature mismatch in response-response!\n");
     return 0;
   }
 
-  olsr_printf(3, "[ENC]Signature verified\n");
+  olsr_printf(3, "[MDP] Signature verified\n");
 
   /* Now to check the digest from the emitted challenge */
   if ((entry = lookup_timestamp_entry((const union olsr_ip_addr *)&msg->originator)) == NULL) {
-    olsr_printf(1, "[ENC]Received response-response from non-registered node %s!\n",
+    olsr_printf(1, "[MDP] Received response-response from non-registered node %s!\n",
                 olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->originator));
     return 0;
   }
 
   /* Generate the digest */
-  olsr_printf(3, "[ENC]Entry-challenge 0x%x\n", entry->challenge);
+  olsr_printf(3, "[MDP] Entry-challenge 0x%x\n", entry->challenge);
 
   {
     uint8_t *checksum_cache = NULL; 
@@ -751,12 +744,12 @@ parse_rres(char *in_msg)
   }
 
   if (memcmp(msg->res_sig, sha1_hash, SIGNATURE_SIZE) != 0) {
-    olsr_printf(1, "[ENC]Error in response signature from %s!\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->originator));
+    olsr_printf(1, "[MDP] Error in response signature from %s!\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->originator));
 
     return 0;
   }
 
-  olsr_printf(3, "[ENC]Challenge-response signature ok\n");
+  olsr_printf(3, "[MDP] Challenge-response signature ok\n");
 
   /* Update entry! */
 
@@ -770,7 +763,7 @@ parse_rres(char *in_msg)
   /* update validtime - validated entry */
   entry->valtime = GET_TIMESTAMP(TIMESTAMP_HOLD_TIME * 1000);
 
-  olsr_printf(1, "[ENC]%s registered with diff %d!\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->originator),
+  olsr_printf(1, "[MDP] %s registered with diff %d!\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->originator),
               entry->diff);
 
   return 1;
@@ -787,11 +780,11 @@ parse_challenge(struct interface *olsr_if, char *in_msg)
 
   msg = (struct challengemsg *)ARM_NOWARN_ALIGN(in_msg);
 
-  olsr_printf(1, "[ENC]Challenge message received\n");
-  olsr_printf(3, "[ENC]To: %s\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->destination));
+  olsr_printf(1, "[MDP] Challenge message received\n");
+  olsr_printf(3, "[MDP] To: %s\n", olsr_ip_to_string(&buf, (union olsr_ip_addr *)&msg->destination));
 
   if (if_ifwithaddr((union olsr_ip_addr *)&msg->destination) == NULL) {
-    olsr_printf(1, "[ENC]Not for us...\n");
+    olsr_printf(1, "[MDP] Not for us...\n");
     return 0;
   }
 
@@ -811,14 +804,14 @@ parse_challenge(struct interface *olsr_if, char *in_msg)
     /* Check configuration timeout */
     if (!TIMED_OUT(entry->conftime)) {
       /* If registered - do not accept! */
-      olsr_printf(1, "[ENC]Challenge from registered node...dropping!\n");
+      olsr_printf(1, "[MDP] Challenge from registered node...dropping!\n");
       return 0;
     } else {
-      olsr_printf(1, "[ENC]Challenge from registered node...accepted!\n");
+      olsr_printf(1, "[MDP] Challenge from registered node...accepted!\n");
     }
   }
 
-  olsr_printf(3, "[ENC]Challenge: 0x%lx\n", (unsigned long)ntohl(msg->challenge));      /* ntohl() returns a unsignedlong onwin32 */
+  olsr_printf(3, "[MDP] Challenge: 0x%lx\n", (unsigned long)ntohl(msg->challenge));      /* ntohl() returns a unsignedlong onwin32 */
 
   /* Check signature */
 
@@ -836,11 +829,11 @@ parse_challenge(struct interface *olsr_if, char *in_msg)
     free(checksum_cache);
   }
   if (memcmp(sha1_hash, &msg->signature, SIGNATURE_SIZE) != 0) {
-    olsr_printf(1, "[ENC]Signature mismatch in challenge!\n");
+    olsr_printf(1, "[MDP] Signature mismatch in challenge!\n");
     return 0;
   }
 
-  olsr_printf(3, "[ENC]Signature verified\n");
+  olsr_printf(3, "[MDP] Signature verified\n");
 
   entry->diff = 0;
   entry->validated = 0;
@@ -871,14 +864,14 @@ send_cres(struct interface *olsr_if, union olsr_ip_addr *to, union olsr_ip_addr 
   uint32_t challenge;
   struct ipaddr_str buf;
 
-  olsr_printf(1, "[ENC]Building CRESPONSE message\n");
+  olsr_printf(3, "[MDP] Building CRESPONSE message\n");
 
   challenge = rand() << 16;
   challenge |= rand();
 
   entry->challenge = challenge;
 
-  olsr_printf(3, "[ENC]Challenge-response: 0x%x\n", challenge);
+  olsr_printf(3, "[MDP] Challenge-response: 0x%x\n", challenge);
 
   /* initialise rrmsg */
   memset(&crmsg, 0, sizeof(crmsg));
@@ -895,8 +888,8 @@ send_cres(struct interface *olsr_if, union olsr_ip_addr *to, union olsr_ip_addr 
   crmsg.timestamp = htonl(now.tv_sec);
 #ifndef _WIN32
   /* Don't print htonl()'d time, use now.tv_sec 2011/05/31 AE5AE */
-/*   olsr_printf(3, "[ENC]Timestamp %lld\n", (long long)crmsg.timestamp); */
-  olsr_printf(3, "[ENC]Timestamp %lld\n", (long long)now.tv_sec);
+/*   olsr_printf(3, "[MDP] Timestamp %lld\n", (long long)crmsg.timestamp); */
+  olsr_printf(3, "[MDP] Timestamp %lld\n", (long long)now.tv_sec);
 #endif /* _WIN32 */
 
   /* Fill subheader */
@@ -934,7 +927,7 @@ send_cres(struct interface *olsr_if, union olsr_ip_addr *to, union olsr_ip_addr 
     free(checksum_cache);
   }
 
-  olsr_printf(3, "[ENC]Sending challenge response to %s challenge 0x%x\n", olsr_ip_to_string(&buf, to), challenge);
+  olsr_printf(3, "[MDP] Sending challenge response to %s challenge 0x%x\n", olsr_ip_to_string(&buf, to), challenge);
 
   /* Add to buffer */
   net_outbuffer_push(olsr_if, &crmsg, sizeof(struct c_respmsg));
@@ -955,7 +948,7 @@ send_rres(struct interface *olsr_if, union olsr_ip_addr *to, union olsr_ip_addr 
   struct r_respmsg rrmsg;
   struct ipaddr_str buf;
 
-  olsr_printf(1, "[ENC]Building RRESPONSE message\n");
+  olsr_printf(3, "[MDP] Building RRESPONSE message\n");
 
   /* initialise rrmsg */
   memset(&rrmsg, 0, sizeof(rrmsg));
@@ -972,9 +965,9 @@ send_rres(struct interface *olsr_if, union olsr_ip_addr *to, union olsr_ip_addr 
   rrmsg.timestamp = htonl(now.tv_sec);
 
 #ifndef _WIN32
-  /* olsr_printf(3, "[ENC]Timestamp %lld\n", (long long)rrmsg.timestamp); */
+  /* olsr_printf(3, "[MDP] Timestamp %lld\n", (long long)rrmsg.timestamp); */
   /* don't print htonl()'d time, use now. 2011/05/31 AE5AE */
-  olsr_printf(3, "[ENC]Timestamp %lld\n", (long long)now.tv_sec);
+  olsr_printf(3, "[MDP] Timestamp %lld\n", (long long)now.tv_sec);
 #endif /* _WIN32 */
   /* Fill subheader */
   assert(olsr_cnf->ipsize == sizeof(rrmsg.destination));
@@ -1010,7 +1003,7 @@ send_rres(struct interface *olsr_if, union olsr_ip_addr *to, union olsr_ip_addr 
     free(checksum_cache);
   }
 
-  olsr_printf(3, "[ENC]Sending response response to %s\n", olsr_ip_to_string(&buf, to));
+  olsr_printf(3, "[MDP] Sending response response to %s\n", olsr_ip_to_string(&buf, to));
 
   /* add to buffer */
   net_outbuffer_push(olsr_if, &rrmsg, sizeof(struct r_respmsg));
@@ -1032,12 +1025,12 @@ lookup_timestamp_entry(const union olsr_ip_addr *adr)
 
   for (entry = timestamps[hash].next; entry != &timestamps[hash]; entry = entry->next) {
     if (memcmp(&entry->addr, adr, olsr_cnf->ipsize) == 0) {
-      olsr_printf(3, "[ENC]Match for %s\n", olsr_ip_to_string(&buf, adr));
+      olsr_printf(3, "[MDP] Match for %s\n", olsr_ip_to_string(&buf, adr));
       return entry;
     }
   }
 
-  olsr_printf(1, "[ENC]No match for %s\n", olsr_ip_to_string(&buf, adr));
+  olsr_printf(1, "[MDP] No match for %s\n", olsr_ip_to_string(&buf, adr));
 
   return NULL;
 }
@@ -1067,7 +1060,7 @@ timeout_timestamps(void *foo __attribute__ ((unused)))
         entry_to_delete = tmp_list;
         tmp_list = tmp_list->next;
 
-        olsr_printf(1, "[ENC]timestamp info for %s timed out.. deleting it\n",
+        olsr_printf(1, "[MDP] timestamp info for %s timed out.. deleting it\n",
 		    olsr_ip_to_string(&buf, &entry_to_delete->addr));
 
         /*Delete it */
@@ -1088,8 +1081,8 @@ read_key_from_servald(const char *sid)
 {
   const char *pins = {"",};
   unsigned char stowedSid[SID_SIZE];
-  unsigned char *found_public_key = NULL;
-  int found_public_key_len = 0;
+  unsigned char *found_private_key = NULL;
+  int found_private_key_len = 0;
   int cn = 0, in = 0, kp = 0;
  
   keyring = keyring_open_with_pins(pins);
@@ -1097,7 +1090,7 @@ read_key_from_servald(const char *sid)
   
   if (!keyring_find_sid(keyring, &cn, &in, &kp, stowedSid))
   {
-    olsr_printf(1, "sid not found\n");
+    olsr_printf(1, "[MDP] sid not found\n");
     return -1;
   }
 
@@ -1105,25 +1098,25 @@ read_key_from_servald(const char *sid)
   {
     if (keyring->contexts[cn]->identities[in]->keypairs[kp]->type==KEYTYPE_CRYPTOSIGN)
     {
-      found_public_key = 
-        keyring->contexts[cn]->identities[in]->keypairs[kp]->public_key;
-      found_public_key_len = 
-        keyring->contexts[cn]->identities[in]->keypairs[kp]->public_key_len;
+      found_private_key = 
+        keyring->contexts[cn]->identities[in]->keypairs[kp]->private_key;
+      found_private_key_len = 
+        keyring->contexts[cn]->identities[in]->keypairs[kp]->private_key_len;
     }
   }
 
-  if (!found_public_key)
+  if (!found_private_key)
   {
-    olsr_printf(1, "key for sid not found!\n");
+    olsr_printf(1, "[MDP] Key for sid not found!\n");
     keyring_free(keyring);
     return -1;
   }
 
-  servald_key = (unsigned char *)calloc(found_public_key_len, sizeof(unsigned char));
-  memcpy(servald_key, found_public_key, found_public_key_len);
-  servald_key_len = found_public_key_len;
+  servald_key = (unsigned char *)calloc(found_private_key_len, sizeof(unsigned char));
+  memcpy(servald_key, found_private_key, found_private_key_len);
+  servald_key_len = found_private_key_len;
 
-  olsr_printf(1, "servald_key_len: %d\n", servald_key_len);
+  olsr_printf(3, "[MDP] servald_key_len: %d\n", servald_key_len);
   print_data("servald_key", servald_key, servald_key_len);
 
   keyring_free(keyring);
